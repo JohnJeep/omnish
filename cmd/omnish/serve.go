@@ -100,7 +100,7 @@ are only relevant when Modbus RTU is enabled.`,
 	cmd.Flags().StringVar(&f.rpcAddr, "rpc", ":9000", "JSON-RPC 2.0 listen address (empty to disable)")
 
 	// Modbus TCP
-	cmd.Flags().StringVar(&f.modbusAddr, "modbus", ":502", "Modbus TCP listen address (empty to disable)")
+	cmd.Flags().StringVar(&f.modbusAddr, "modbus", ":5002", "Modbus TCP listen address (empty to disable)")
 
 	// Serial / Modbus RTU
 	cmd.Flags().StringVar(&f.serial, "serial", "", "serial port device, e.g. /dev/ttyUSB0 or COM3 (empty to disable)")

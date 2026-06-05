@@ -33,21 +33,26 @@ type varEntry struct {
 
 // Registry maintains the shell command list and provides names for Tab completion.
 type Registry struct {
-	mu        sync.RWMutex
-	commands  map[string]*Command
-	hist      []string          // command history for the history command
-	vars      map[string]varEntry // shell variables
-	aliases   map[string]string   // command aliases
-	hashCache map[string]string   // PATH lookup cache for hash
+	mu           sync.RWMutex
+	commands     map[string]*Command
+	hist         []string            // command history for the history command
+	vars         map[string]varEntry // shell variables
+	aliases      map[string]string   // command aliases
+	hashCache    map[string]string   // PATH lookup cache for hash
+	dirStack     []string            // pushd/popd/dirs directory stack
+	disabledCmds map[string]bool     // enable -n: disabled builtins
+	traps        map[string]string   // trap: signal → handler string
 }
 
 // NewRegistry creates a Registry and registers all built-in commands.
 func NewRegistry() *Registry {
 	r := &Registry{
-		commands:  make(map[string]*Command),
-		vars:      make(map[string]varEntry),
-		aliases:   make(map[string]string),
-		hashCache: make(map[string]string),
+		commands:     make(map[string]*Command),
+		vars:         make(map[string]varEntry),
+		aliases:      make(map[string]string),
+		hashCache:    make(map[string]string),
+		disabledCmds: make(map[string]bool),
+		traps:        make(map[string]string),
 	}
 	r.registerBuiltins()
 	return r
@@ -90,9 +95,13 @@ func (r *Registry) dispatchDepth(ctx context.Context, line string, depth int) st
 
 	r.mu.RLock()
 	cmd, ok := r.commands[name]
+	disabled := r.disabledCmds[name]
 	r.mu.RUnlock()
 	if !ok {
 		return fmt.Sprintf("unknown command: %q  (type 'help' for list)", name)
+	}
+	if disabled {
+		return fmt.Sprintf("bash: %s: command disabled", name)
 	}
 
 	out, err := cmd.Handler(ctx, args)
@@ -103,6 +112,18 @@ func (r *Registry) dispatchDepth(ctx context.Context, line string, depth int) st
 		return fmt.Sprintf("error: %v", err)
 	}
 	return out
+}
+
+// dispatchBuiltin executes a command by name without alias expansion.
+// Used by the `command` and `builtin` builtins.
+func (r *Registry) dispatchBuiltin(ctx context.Context, name string, args []string) (string, error) {
+	r.mu.RLock()
+	cmd, ok := r.commands[name]
+	r.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("%s: not a shell builtin", name)
+	}
+	return cmd.Handler(ctx, args)
 }
 
 // Complete returns Tab-completion candidates for a command-name prefix.
@@ -214,7 +235,57 @@ func (r *Registry) registerBuiltins() {
 	r.AddCommand("quit",     "quit                     — close current shell session",                   cmdQuit)
 	r.AddCommand("exit",     "exit                     — same as quit",                                  cmdQuit)
 
-	// platform-specific: kill, umask, times, ulimit
+	// ── i/o (additional) ─────────────────────────────────────────────────────
+	r.AddCommand("read",      "read [-r] [-p prompt] VAR  — read into variable (sets to '' in daemon mode)", r.cmdRead)
+
+	// ── variables (additional) ────────────────────────────────────────────────
+	r.AddCommand("typeset",   "typeset [-rx] [name[=v]]   — same as declare",                       r.cmdDeclare)
+	r.AddCommand("local",     "local [name[=value]]        — declare local variable (like declare)", r.cmdDeclare)
+
+	// ── source ────────────────────────────────────────────────────────────────
+	r.AddCommand("source",    "source file                — execute commands from file",             r.cmdSource)
+	r.AddCommand(".",         ". file                     — same as source",                         r.cmdSource)
+
+	// ── extended test ─────────────────────────────────────────────────────────
+	r.AddCommand("[[",        "[[ expr ]]                 — extended conditional expression",        r.cmdDoubleBracket)
+
+	// ── directory stack ───────────────────────────────────────────────────────
+	r.AddCommand("dirs",      "dirs                       — display directory stack",                r.cmdDirs)
+	r.AddCommand("pushd",     "pushd [dir]                — push dir onto stack and cd",             r.cmdPushd)
+	r.AddCommand("popd",      "popd                       — pop top of stack and cd",                r.cmdPopd)
+
+	// ── command meta (additional) ─────────────────────────────────────────────
+	r.AddCommand("command",   "command [-v] name [args]   — run command bypassing aliases",          r.cmdCommand)
+	r.AddCommand("builtin",   "builtin name [args]        — force builtin execution",                r.cmdBuiltin)
+	r.AddCommand("enable",    "enable [-n] [name]         — enable/disable builtins",                r.cmdEnable)
+
+	// ── process ───────────────────────────────────────────────────────────────
+	r.AddCommand("exec",      "exec cmd [args]            — execute external command",               r.cmdExec)
+	r.AddCommand("kill",      "kill [-SIG] PID            — send signal to process",                 r.cmdKill)
+	r.AddCommand("wait",      "wait [PID]                 — wait for process to complete",           r.cmdWait)
+
+	// ── trap ──────────────────────────────────────────────────────────────────
+	r.AddCommand("trap",      "trap [-l] [action] [SIG]   — set/list signal handlers",              r.cmdTrap)
+
+	// ── job control (stubs) ───────────────────────────────────────────────────
+	r.AddCommand("jobs",      "jobs                       — list background jobs",                   cmdJobs)
+	r.AddCommand("bg",        "bg [jobspec]               — resume job in background",               cmdBg)
+	r.AddCommand("fg",        "fg [jobspec]               — resume job in foreground",               cmdFg)
+	r.AddCommand("disown",    "disown [jobspec]            — remove job from job table",             cmdDisown)
+
+	// ── flow (limited) ────────────────────────────────────────────────────────
+	r.AddCommand("return",    "return [n]                 — return from function with exit code",    cmdReturn)
+	r.AddCommand("shift",     "shift [n]                  — shift positional parameters",            cmdShift)
+	r.AddCommand("getopts",   "getopts optstring var      — parse option arguments",                 r.cmdGetopts)
+
+	// ── other ─────────────────────────────────────────────────────────────────
+	r.AddCommand("caller",    "caller [n]                 — show call stack frame",                  cmdCaller)
+	r.AddCommand("mapfile",   "mapfile [var]              — read lines into array (unsupported)",    cmdMapfile)
+	r.AddCommand("readarray", "readarray [var]            — same as mapfile",                        cmdMapfile)
+	r.AddCommand("compgen",   "compgen [-cav] [-W list] [prefix] — generate completion matches",    r.cmdCompgen)
+	r.AddCommand("complete",  "complete [opts] cmd        — set completion specification (stub)",    cmdComplete)
+
+	// platform-specific: umask, ulimit, times, suspend
 	registerPlatformBuiltins(r)
 }
 
