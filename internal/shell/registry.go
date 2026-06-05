@@ -197,6 +197,7 @@ func (r *Registry) registerBuiltins() {
 	r.AddCommand("mkdir", "mkdir [-p] [-m mode] dir...  — create directories",                        cmdMkdir)
 	r.AddCommand("chmod", "chmod [-R] mode file...      — change file permissions (octal or symbolic)", cmdChmod)
 	r.AddCommand("chown", "chown [-R] owner[:grp] file  — change file owner and group",               cmdChown)
+	r.AddCommand("du",    "du [-hsca] [-d N] [-bkmh] [path...] — estimate file space usage",          cmdDU)
 
 	// ── variables ────────────────────────────────────────────────────────────
 	r.AddCommand("export",   "export [name[=value]]    — export variable to environment",                r.cmdExport)

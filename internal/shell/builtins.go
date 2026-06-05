@@ -1285,6 +1285,127 @@ func cmdComplete(_ context.Context, _ []string) (string, error) {
 	return "", nil // completion spec registration is not applicable in daemon mode
 }
 
+// ─── du ───────────────────────────────────────────────────────────────────────
+
+func cmdDU(_ context.Context, args []string) (string, error) {
+	humanSz := false
+	summarize := false
+	grandTotal := false
+	allFiles := false
+	maxDepth := -1
+	blockSz := int64(1024)
+	paths := []string{}
+
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-h":
+			humanSz = true
+		case a == "-s":
+			summarize = true
+		case a == "-c":
+			grandTotal = true
+		case a == "-a":
+			allFiles = true
+		case a == "-b":
+			blockSz = 1
+		case a == "-k":
+			blockSz = 1024
+		case a == "-m":
+			blockSz = 1024 * 1024
+		case a == "-d":
+			if i+1 < len(args) {
+				i++
+				d, err := strconv.Atoi(args[i])
+				if err != nil {
+					return "", fmt.Errorf("du: invalid depth '%s'", args[i])
+				}
+				maxDepth = d
+			}
+		case strings.HasPrefix(a, "-d") && len(a) > 2:
+			d, err := strconv.Atoi(a[2:])
+			if err != nil {
+				return "", fmt.Errorf("du: invalid depth '%s'", a)
+			}
+			maxDepth = d
+		case strings.HasPrefix(a, "--max-depth="):
+			d, err := strconv.Atoi(a[len("--max-depth="):])
+			if err != nil {
+				return "", fmt.Errorf("du: invalid depth '%s'", a)
+			}
+			maxDepth = d
+		default:
+			if !strings.HasPrefix(a, "-") {
+				paths = append(paths, a)
+			}
+		}
+	}
+	if len(paths) == 0 {
+		paths = []string{"."}
+	}
+
+	var sb strings.Builder
+	var total int64
+	for _, p := range paths {
+		size, err := duPath(&sb, p, 0, maxDepth, summarize, allFiles, humanSz, blockSz)
+		if err != nil {
+			fmt.Fprintf(&sb, "du: %v\n", err)
+			continue
+		}
+		if summarize {
+			fmt.Fprintf(&sb, "%s\t%s\n", duFmt(size, blockSz, humanSz), p)
+		}
+		total += size
+	}
+	if grandTotal {
+		fmt.Fprintf(&sb, "%s\ttotal\n", duFmt(total, blockSz, humanSz))
+	}
+	return strings.TrimRight(sb.String(), "\n"), nil
+}
+
+func duPath(sb *strings.Builder, path string, depth, maxDepth int, summarize, allFiles, humanSz bool, blockSz int64) (int64, error) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return 0, err
+	}
+	if !fi.IsDir() {
+		size := fi.Size()
+		if !summarize && allFiles && (maxDepth < 0 || depth <= maxDepth) {
+			fmt.Fprintf(sb, "%s\t%s\n", duFmt(size, blockSz, humanSz), path)
+		}
+		return size, nil
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, e := range entries {
+		child := filepath.Join(path, e.Name())
+		childSize, childErr := duPath(sb, child, depth+1, maxDepth, summarize, allFiles, humanSz, blockSz)
+		if childErr != nil {
+			fmt.Fprintf(sb, "du: cannot access '%s': %v\n", child, childErr)
+			continue
+		}
+		total += childSize
+	}
+	if !summarize && (maxDepth < 0 || depth <= maxDepth) {
+		fmt.Fprintf(sb, "%s\t%s\n", duFmt(total, blockSz, humanSz), path)
+	}
+	return total, nil
+}
+
+func duFmt(bytes, blockSz int64, human bool) string {
+	if human {
+		return lsHumanSize(bytes)
+	}
+	blocks := bytes / blockSz
+	if bytes%blockSz != 0 {
+		blocks++
+	}
+	return strconv.FormatInt(blocks, 10)
+}
+
 // ─── filesystem commands ──────────────────────────────────────────────────────
 
 func cmdLS(_ context.Context, args []string) (string, error) {
