@@ -5,13 +5,17 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unicode"
 )
 
@@ -73,15 +77,45 @@ func (r *Registry) expandVars(s string) string {
 // ─── navigation ───────────────────────────────────────────────────────────────
 
 func (r *Registry) cmdCD(_ context.Context, args []string) (string, error) {
-	dir := os.Getenv("HOME")
+	target := os.Getenv("HOME")
 	if len(args) > 0 {
-		dir = args[0]
+		target = args[0]
 	}
-	if dir == "" {
-		dir = "/"
+	if target == "" {
+		target = "/"
 	}
-	if err := os.Chdir(dir); err != nil {
+
+	switch {
+	case target == "-":
+		oldpwd, ok := r.getVar("OLDPWD")
+		if !ok || oldpwd == "" {
+			return "", fmt.Errorf("cd: OLDPWD not set")
+		}
+		target = oldpwd
+	case target == "~":
+		if home := os.Getenv("HOME"); home != "" {
+			target = home
+		} else {
+			target = "/"
+		}
+	case strings.HasPrefix(target, "~/"):
+		if home := os.Getenv("HOME"); home != "" {
+			target = filepath.Join(home, target[2:])
+		}
+	}
+
+	if cwd, err := os.Getwd(); err == nil {
+		r.setVar("OLDPWD", cwd, false, false)
+		os.Setenv("OLDPWD", cwd) //nolint
+	}
+
+	if err := os.Chdir(target); err != nil {
 		return "", fmt.Errorf("cd: %v", err)
+	}
+
+	if newCwd, err := os.Getwd(); err == nil {
+		r.setVar("PWD", newCwd, false, false)
+		os.Setenv("PWD", newCwd) //nolint
 	}
 	return "", nil
 }
@@ -1249,4 +1283,554 @@ func (r *Registry) cmdCompgen(_ context.Context, args []string) (string, error) 
 
 func cmdComplete(_ context.Context, _ []string) (string, error) {
 	return "", nil // completion spec registration is not applicable in daemon mode
+}
+
+// ─── filesystem commands ──────────────────────────────────────────────────────
+
+func cmdLS(_ context.Context, args []string) (string, error) {
+	showAll := false
+	longFmt := false
+	humanSz := false
+	recursive := false
+	sortByTime := false
+	reversed := false
+	paths := []string{}
+
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") && len(a) > 1 {
+			for _, c := range a[1:] {
+				switch c {
+				case 'a', 'A':
+					showAll = true
+				case 'l':
+					longFmt = true
+				case 'h':
+					humanSz = true
+				case 'R':
+					recursive = true
+				case 't':
+					sortByTime = true
+				case 'r':
+					reversed = true
+				}
+			}
+		} else {
+			paths = append(paths, a)
+		}
+	}
+	if len(paths) == 0 {
+		paths = []string{"."}
+	}
+
+	var sb strings.Builder
+	multiDir := len(paths) > 1
+	for i, p := range paths {
+		fi, err := os.Stat(p)
+		if err != nil {
+			fmt.Fprintf(&sb, "ls: cannot access '%s': %v\n", p, err)
+			continue
+		}
+		if !fi.IsDir() {
+			if longFmt {
+				fmt.Fprintf(&sb, "%s\n", lsLongLine(fi, p, humanSz))
+			} else {
+				fmt.Fprintf(&sb, "%s\n", fi.Name())
+			}
+			continue
+		}
+		if multiDir {
+			if i > 0 {
+				sb.WriteByte('\n')
+			}
+			fmt.Fprintf(&sb, "%s:\n", p)
+		}
+		lsDir(&sb, p, showAll, longFmt, humanSz, recursive, sortByTime, reversed)
+	}
+	return strings.TrimRight(sb.String(), "\n"), nil
+}
+
+func lsDir(sb *strings.Builder, dir string, showAll, longFmt, humanSz, recursive, sortByTime, reversed bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		fmt.Fprintf(sb, "ls: cannot open '%s': %v\n", dir, err)
+		return
+	}
+	var shown []os.DirEntry
+	for _, e := range entries {
+		if !showAll && strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		shown = append(shown, e)
+	}
+	if sortByTime {
+		sort.Slice(shown, func(i, j int) bool {
+			ii, _ := shown[i].Info()
+			ji, _ := shown[j].Info()
+			if ii == nil || ji == nil {
+				return false
+			}
+			if reversed {
+				return ii.ModTime().Before(ji.ModTime())
+			}
+			return ii.ModTime().After(ji.ModTime())
+		})
+	} else {
+		sort.Slice(shown, func(i, j int) bool {
+			if reversed {
+				return shown[i].Name() > shown[j].Name()
+			}
+			return shown[i].Name() < shown[j].Name()
+		})
+	}
+	if longFmt {
+		for _, e := range shown {
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(sb, "%s\n", lsLongLine(info, filepath.Join(dir, e.Name()), humanSz))
+		}
+	} else {
+		for _, e := range shown {
+			suffix := ""
+			if e.IsDir() {
+				suffix = "/"
+			}
+			fmt.Fprintf(sb, "%s%s\n", e.Name(), suffix)
+		}
+	}
+	if recursive {
+		for _, e := range shown {
+			if e.IsDir() {
+				sub := filepath.Join(dir, e.Name())
+				fmt.Fprintf(sb, "\n%s:\n", sub)
+				lsDir(sb, sub, showAll, longFmt, humanSz, recursive, sortByTime, reversed)
+			}
+		}
+	}
+}
+
+func lsLongLine(fi os.FileInfo, path string, humanSz bool) string {
+	mode := fi.Mode().String()
+	var sizeStr string
+	if humanSz {
+		sizeStr = lsHumanSize(fi.Size())
+	} else {
+		sizeStr = fmt.Sprintf("%8d", fi.Size())
+	}
+	t := fi.ModTime()
+	var timeStr string
+	if time.Since(t) < 182*24*time.Hour {
+		timeStr = t.Format("Jan _2 15:04")
+	} else {
+		timeStr = t.Format("Jan _2  2006")
+	}
+	name := fi.Name()
+	if fi.Mode()&os.ModeSymlink != 0 {
+		if target, err := os.Readlink(path); err == nil {
+			name += " -> " + target
+		}
+	}
+	return fmt.Sprintf("%s %s %s %s", mode, sizeStr, timeStr, name)
+}
+
+func lsHumanSize(n int64) string {
+	units := []string{"B", "K", "M", "G", "T"}
+	f := float64(n)
+	i := 0
+	for f >= 1024 && i < len(units)-1 {
+		f /= 1024
+		i++
+	}
+	if i == 0 {
+		return fmt.Sprintf("%4dB", int(f))
+	}
+	return fmt.Sprintf("%4.1f%s", f, units[i])
+}
+
+func cmdMV(_ context.Context, args []string) (string, error) {
+	force := false
+	rest := []string{}
+	for _, a := range args {
+		switch a {
+		case "-f":
+			force = true
+		case "-i", "-n":
+			// ignore interactive / no-clobber flags
+		default:
+			rest = append(rest, a)
+		}
+	}
+	if len(rest) < 2 {
+		return "", fmt.Errorf("usage: mv [-f] source... dest")
+	}
+	dst := rest[len(rest)-1]
+	srcs := rest[:len(rest)-1]
+	dstInfo, dstErr := os.Stat(dst)
+	dstIsDir := dstErr == nil && dstInfo.IsDir()
+	if len(srcs) > 1 && !dstIsDir {
+		return "", fmt.Errorf("mv: target '%s' is not a directory", dst)
+	}
+	for _, src := range srcs {
+		target := dst
+		if dstIsDir {
+			target = filepath.Join(dst, filepath.Base(src))
+		}
+		if !force {
+			if _, err := os.Stat(target); err == nil {
+				return "", fmt.Errorf("mv: '%s' already exists (use -f to overwrite)", target)
+			}
+		}
+		if err := os.Rename(src, target); err != nil {
+			// Fallback for cross-device rename: copy then remove
+			srcInfo, statErr := os.Stat(src)
+			if statErr != nil {
+				return "", fmt.Errorf("mv: %v", err)
+			}
+			var cpErr error
+			if srcInfo.IsDir() {
+				cpErr = cpDir(src, target, force)
+				if cpErr == nil {
+					os.RemoveAll(src) //nolint
+				}
+			} else {
+				cpErr = cpFile(src, target, true)
+				if cpErr == nil {
+					os.Remove(src) //nolint
+				}
+			}
+			if cpErr != nil {
+				return "", fmt.Errorf("mv: %v", cpErr)
+			}
+		}
+	}
+	return "", nil
+}
+
+func cmdCP(_ context.Context, args []string) (string, error) {
+	recursive := false
+	force := false
+	rest := []string{}
+	for _, a := range args {
+		switch a {
+		case "-r", "-R", "--recursive":
+			recursive = true
+		case "-f", "--force":
+			force = true
+		case "-i":
+			// ignore interactive flag
+		default:
+			rest = append(rest, a)
+		}
+	}
+	if len(rest) < 2 {
+		return "", fmt.Errorf("usage: cp [-r] [-f] source... dest")
+	}
+	dst := rest[len(rest)-1]
+	srcs := rest[:len(rest)-1]
+	dstInfo, dstErr := os.Stat(dst)
+	dstIsDir := dstErr == nil && dstInfo.IsDir()
+	if len(srcs) > 1 && !dstIsDir {
+		return "", fmt.Errorf("cp: target '%s' is not a directory", dst)
+	}
+	for _, src := range srcs {
+		target := dst
+		if dstIsDir {
+			target = filepath.Join(dst, filepath.Base(src))
+		}
+		srcInfo, err := os.Stat(src)
+		if err != nil {
+			return "", fmt.Errorf("cp: %v", err)
+		}
+		if srcInfo.IsDir() {
+			if !recursive {
+				return "", fmt.Errorf("cp: '%s' is a directory (use -r)", src)
+			}
+			if err := cpDir(src, target, force); err != nil {
+				return "", err
+			}
+		} else {
+			if err := cpFile(src, target, force); err != nil {
+				return "", err
+			}
+		}
+	}
+	return "", nil
+}
+
+func cpFile(src, dst string, force bool) error {
+	if !force {
+		if _, err := os.Stat(dst); err == nil {
+			return fmt.Errorf("cp: '%s' already exists (use -f to overwrite)", dst)
+		}
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("cp: %v", err)
+	}
+	defer in.Close()
+	inInfo, err := in.Stat()
+	if err != nil {
+		return fmt.Errorf("cp: %v", err)
+	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, inInfo.Mode())
+	if err != nil {
+		return fmt.Errorf("cp: %v", err)
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("cp: %v", err)
+	}
+	return nil
+}
+
+func cpDir(src, dst string, force bool) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return fmt.Errorf("cp: %v", err)
+		}
+		rel, _ := filepath.Rel(src, path)
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		return cpFile(path, target, force)
+	})
+}
+
+func cmdMkdir(_ context.Context, args []string) (string, error) {
+	parents := false
+	mode := os.FileMode(0755)
+	rest := []string{}
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "-p":
+			parents = true
+		case args[i] == "-m":
+			if i+1 < len(args) {
+				i++
+				v, err := strconv.ParseUint(args[i], 8, 32)
+				if err != nil {
+					return "", fmt.Errorf("mkdir: invalid mode '%s'", args[i])
+				}
+				mode = os.FileMode(v)
+			}
+		case strings.HasPrefix(args[i], "-m"):
+			v, err := strconv.ParseUint(args[i][2:], 8, 32)
+			if err != nil {
+				return "", fmt.Errorf("mkdir: invalid mode '%s'", args[i])
+			}
+			mode = os.FileMode(v)
+		default:
+			rest = append(rest, args[i])
+		}
+	}
+	if len(rest) == 0 {
+		return "", fmt.Errorf("usage: mkdir [-p] [-m mode] directory...")
+	}
+	for _, dir := range rest {
+		var err error
+		if parents {
+			err = os.MkdirAll(dir, mode)
+		} else {
+			err = os.Mkdir(dir, mode)
+		}
+		if err != nil {
+			return "", fmt.Errorf("mkdir: %v", err)
+		}
+	}
+	return "", nil
+}
+
+func cmdChmod(_ context.Context, args []string) (string, error) {
+	recursive := false
+	rest := []string{}
+	for _, a := range args {
+		if a == "-R" {
+			recursive = true
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	if len(rest) < 2 {
+		return "", fmt.Errorf("usage: chmod [-R] mode file...")
+	}
+	modeStr := rest[0]
+	files := rest[1:]
+	for _, f := range files {
+		if recursive {
+			if err := filepath.Walk(f, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				newMode, parseErr := parseChmodMode(info.Mode(), modeStr)
+				if parseErr != nil {
+					return parseErr
+				}
+				return os.Chmod(path, newMode)
+			}); err != nil {
+				return "", fmt.Errorf("chmod: %v", err)
+			}
+		} else {
+			fi, err := os.Stat(f)
+			if err != nil {
+				return "", fmt.Errorf("chmod: %v", err)
+			}
+			newMode, err := parseChmodMode(fi.Mode(), modeStr)
+			if err != nil {
+				return "", err
+			}
+			if err := os.Chmod(f, newMode); err != nil {
+				return "", fmt.Errorf("chmod: %v", err)
+			}
+		}
+	}
+	return "", nil
+}
+
+// parseChmodMode parses an octal (e.g. "755") or symbolic (e.g. "u+x", "a-w", "+x") mode string.
+func parseChmodMode(current os.FileMode, s string) (os.FileMode, error) {
+	if v, err := strconv.ParseUint(s, 8, 32); err == nil {
+		return os.FileMode(v) & os.ModePerm, nil
+	}
+	mode := current & os.ModePerm
+	for _, clause := range strings.Split(s, ",") {
+		clause = strings.TrimSpace(clause)
+		if clause == "" {
+			continue
+		}
+		i := 0
+		whoMask := os.FileMode(0)
+		for i < len(clause) {
+			switch clause[i] {
+			case 'u':
+				whoMask |= 0o700
+			case 'g':
+				whoMask |= 0o070
+			case 'o':
+				whoMask |= 0o007
+			case 'a':
+				whoMask |= 0o777
+			default:
+				goto parseOp
+			}
+			i++
+		}
+	parseOp:
+		if whoMask == 0 {
+			whoMask = 0o777
+		}
+		if i >= len(clause) {
+			return 0, fmt.Errorf("chmod: invalid mode '%s'", s)
+		}
+		op := clause[i]
+		if op != '+' && op != '-' && op != '=' {
+			return 0, fmt.Errorf("chmod: invalid mode '%s'", s)
+		}
+		i++
+		permBits := os.FileMode(0)
+		for i < len(clause) {
+			switch clause[i] {
+			case 'r':
+				permBits |= 0o444
+			case 'w':
+				permBits |= 0o222
+			case 'x':
+				permBits |= 0o111
+			case 'X':
+				if current.IsDir() || current&0o111 != 0 {
+					permBits |= 0o111
+				}
+			}
+			i++
+		}
+		permBits &= whoMask
+		switch op {
+		case '+':
+			mode |= permBits
+		case '-':
+			mode &^= permBits
+		case '=':
+			mode = (mode &^ whoMask) | permBits
+		}
+	}
+	return mode, nil
+}
+
+func cmdChown(_ context.Context, args []string) (string, error) {
+	recursive := false
+	rest := []string{}
+	for _, a := range args {
+		if a == "-R" {
+			recursive = true
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	if len(rest) < 2 {
+		return "", fmt.Errorf("usage: chown [-R] owner[:group] file...")
+	}
+	ownerStr := rest[0]
+	files := rest[1:]
+	uid, gid, err := resolveOwner(ownerStr)
+	if err != nil {
+		return "", fmt.Errorf("chown: %v", err)
+	}
+	for _, f := range files {
+		if recursive {
+			if walkErr := filepath.Walk(f, func(path string, _ os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				return os.Lchown(path, uid, gid)
+			}); walkErr != nil {
+				return "", fmt.Errorf("chown: %v", walkErr)
+			}
+		} else {
+			if err := os.Lchown(f, uid, gid); err != nil {
+				return "", fmt.Errorf("chown: %v", err)
+			}
+		}
+	}
+	return "", nil
+}
+
+func resolveOwner(s string) (uid, gid int, err error) {
+	parts := strings.SplitN(s, ":", 2)
+	uid, err = resolveUID(parts[0])
+	if err != nil {
+		return 0, 0, err
+	}
+	gid = -1
+	if len(parts) == 2 && parts[1] != "" {
+		gid, err = resolveGID(parts[1])
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+	return uid, gid, nil
+}
+
+func resolveUID(s string) (int, error) {
+	if n, err := strconv.Atoi(s); err == nil {
+		return n, nil
+	}
+	u, err := user.Lookup(s)
+	if err != nil {
+		return 0, fmt.Errorf("unknown user: %s", s)
+	}
+	n, _ := strconv.Atoi(u.Uid)
+	return n, nil
+}
+
+func resolveGID(s string) (int, error) {
+	if n, err := strconv.Atoi(s); err == nil {
+		return n, nil
+	}
+	g, err := user.LookupGroup(s)
+	if err != nil {
+		return 0, fmt.Errorf("unknown group: %s", s)
+	}
+	n, _ := strconv.Atoi(g.Gid)
+	return n, nil
 }

@@ -187,8 +187,16 @@ func (r *Registry) pushHist(line string) {
 
 func (r *Registry) registerBuiltins() {
 	// ── navigation ───────────────────────────────────────────────────────────
-	r.AddCommand("cd",       "cd [dir]                 — change working directory (default: $HOME)",     r.cmdCD)
+	r.AddCommand("cd",       "cd [dir|-|~]             — change directory; cd - goes to OLDPWD",         r.cmdCD)
 	r.AddCommand("pwd",      "pwd                      — print current working directory",               cmdPWD)
+
+	// ── filesystem ───────────────────────────────────────────────────────────
+	r.AddCommand("ls",    "ls [-alAhRtr] [path...]      — list directory contents",                   cmdLS)
+	r.AddCommand("mv",    "mv [-f] src... dest          — move or rename files",                      cmdMV)
+	r.AddCommand("cp",    "cp [-r] [-f] src... dest     — copy files or directories",                 cmdCP)
+	r.AddCommand("mkdir", "mkdir [-p] [-m mode] dir...  — create directories",                        cmdMkdir)
+	r.AddCommand("chmod", "chmod [-R] mode file...      — change file permissions (octal or symbolic)", cmdChmod)
+	r.AddCommand("chown", "chown [-R] owner[:grp] file  — change file owner and group",               cmdChown)
 
 	// ── variables ────────────────────────────────────────────────────────────
 	r.AddCommand("export",   "export [name[=value]]    — export variable to environment",                r.cmdExport)
