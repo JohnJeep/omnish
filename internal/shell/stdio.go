@@ -47,6 +47,7 @@ func serveLine(ctx context.Context, r io.Reader, w io.Writer, reg *Registry) err
 			if tmp[0] == '\n' {
 				line := string(buf)
 				buf = buf[:0]
+				reg.pushHist(line)
 				out := reg.Dispatch(ctx, line)
 				if out != "" {
 					fmt.Fprintln(w, out)

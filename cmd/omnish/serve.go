@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -14,6 +15,9 @@ import (
 	"github.com/omnish/omnish/internal/modbus"
 	"github.com/omnish/omnish/internal/shell"
 )
+
+// startTime records when the daemon process started (used by the info command).
+var startTime = time.Now()
 
 type serveFlags struct {
 	// Shell

@@ -31,6 +31,7 @@ func runEditorLoop(ctx context.Context, r io.Reader, w io.Writer, reg *Registry,
 			return err
 		}
 
+		reg.pushHist(line)
 		out := reg.Dispatch(ctx, line)
 		if out != "" {
 			w.Write([]byte(out + "\r\n")) //nolint
