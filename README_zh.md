@@ -22,6 +22,7 @@
 - **优雅关闭**——SIGINT/SIGTERM 信号传播到所有服务  
 - **Tab 补全与命令历史**——三种 Shell 前端共用同一编辑器内核  
 - **可插拔命令**——在启动时注册 Shell 命令、JSON-RPC 方法和 Modbus 寄存器  
+- **丰富的内置命令**——60+ 条兼容 bash 的内置命令，全平台可用  
 
 ---
 
@@ -32,7 +33,7 @@
 make build
 
 # 2. 启动所有网络服务（stdio Shell 默认关闭，日志输出更整洁）
-./bin/omnish serve
+./omnish serve
 
 # 3. 在另一个终端中连接
 telnet localhost 2323                               # 通过 Telnet 使用 Shell
@@ -42,23 +43,23 @@ echo '{"jsonrpc":"2.0","id":1,"method":"system.ping","params":null}' | nc localh
 # ── 常用场景 ──────────────────────────────────────────────────────────────────
 
 # 启用本地 stdio Shell（用于交互式调试）
-./bin/omnish serve --stdio
+./omnish serve --stdio
 
 # 仅 Telnet Shell
-./bin/omnish serve --rpc "" --modbus ""
+./omnish serve --rpc "" --modbus ""
 
 # 仅 JSON-RPC
-./bin/omnish serve --telnet "" --ssh "" --modbus ""
+./omnish serve --telnet "" --ssh "" --modbus ""
 
 # 仅 Modbus TCP 从站
-./bin/omnish serve --telnet "" --ssh "" --rpc ""
+./omnish serve --telnet "" --ssh "" --rpc ""
 
 # 通过串口运行 Modbus RTU（9600-8-N-1，从站 ID 1）
-./bin/omnish serve --telnet "" --ssh "" --rpc "" --modbus "" \
+./omnish serve --telnet "" --ssh "" --rpc "" --modbus "" \
                    --serial /dev/ttyUSB0 --baud 9600 --slaveid 1
 
 # 自定义端口 + 调试日志
-./bin/omnish serve --telnet :4000 --ssh :4001 --rpc :4002 --log debug
+./omnish serve --telnet :4000 --ssh :4001 --rpc :4002 --log debug
 ```
 
 ---
@@ -113,32 +114,154 @@ omnish serve --help
 
 ---
 
+## 内置命令
+
+所有内置命令在全平台可用。标注 **[Linux]** 的命令在 Linux 上读取原生 `/proc` 接口，在 macOS/BSD 上返回平台提示信息；Windows 使用 Win32 API 独立实现。
+
+### 目录导航
+| 命令 | 说明 |
+|------|------|
+| `cd [dir\|-\|~]` | 切换目录；`cd -` 返回上一目录（OLDPWD），`cd ~` 回到家目录 |
+| `pwd` | 打印当前工作目录 |
+| `dirs` | 显示目录栈 |
+| `pushd [dir]` | 将目录压栈并切换 |
+| `popd` | 弹出目录栈顶并切换 |
+
+### 文件系统
+| 命令 | 说明 |
+|------|------|
+| `ls [-alAhRtr] [path...]` | 列出目录内容 |
+| `mv [-f] src... dest` | 移动或重命名文件 |
+| `cp [-r] [-f] src... dest` | 复制文件或目录 |
+| `mkdir [-p] [-m mode] dir...` | 创建目录 |
+| `chmod [-R] mode file...` | 修改权限（八进制或符号模式，如 `u+x`） |
+| `chown [-R] owner[:group] file...` | 修改文件所有者和所属组 |
+| `du [-hsca] [-d N] [-bkmh] [path...]` | 估算文件占用空间 |
+| `df [-hHTia] [-t type] [path...]` | 报告文件系统磁盘使用情况 **[Linux/Windows]** |
+
+### 系统信息
+| 命令 | 说明 |
+|------|------|
+| `free [-h\|-b\|-k\|-m\|-g] [-t] [-w]` | 显示内存使用情况 **[Linux/Windows]** |
+| `ps [-eAf] [-p pid] [-u user] [aux]` | 查看进程状态 **[Linux/Windows]** |
+| `ss [-tulxnsa46]` | Socket 连接统计 **[Linux/Windows]** |
+| `date` | 显示当前日期和时间 |
+| `uptime` | 显示 omnish 已运行时长 |
+
+### 变量与环境
+| 命令 | 说明 |
+|------|------|
+| `export [name[=value]]` | 将变量导出到环境 |
+| `unset name` | 删除变量或环境变量 |
+| `set` | 列出所有 Shell 变量 |
+| `declare / typeset / local [-rx] [name[=v]]` | 声明变量并设置属性 |
+| `readonly [name[=value]]` | 将变量标记为只读 |
+| `let expr` | 求值算术表达式（如 `let x=5+3`） |
+
+### 别名
+| 命令 | 说明 |
+|------|------|
+| `alias [name[='cmd']]` | 创建或列出别名 |
+| `unalias name` | 删除别名 |
+
+### 输入输出
+| 命令 | 说明 |
+|------|------|
+| `echo [text...]` | 打印参数 |
+| `printf format [args...]` | 格式化输出（支持 `\n` `\t` `%s` `%d` 等） |
+| `read [-r] [-p prompt] VAR` | 读取一行到变量 |
+
+### 命令历史
+| 命令 | 说明 |
+|------|------|
+| `history` | 显示带序号的命令历史 |
+| `fc [-l] [n]` | 列出（`-l`）或重新执行第 `n` 条历史命令 |
+
+### 流程控制
+| 命令 | 说明 |
+|------|------|
+| `eval [args...]` | 将参数作为 Shell 命令求值 |
+| `source / .  file` | 在当前 Shell 中执行文件 |
+| `true / false / :` | 布尔空操作 |
+| `return [n]` | 从函数返回，可携带退出码 |
+| `shift [n]` | 移位位置参数 |
+| `getopts optstring var` | 解析选项参数 |
+
+### 条件判断
+| 命令 | 说明 |
+|------|------|
+| `test expr` / `[ expr ]` | 求值条件表达式 |
+| `[[ expr ]]` | 扩展条件表达式 |
+
+### 命令自省
+| 命令 | 说明 |
+|------|------|
+| `type name...` | 显示各名称的解析方式 |
+| `hash [-r] [name]` | 显示或重置命令路径缓存 |
+| `command [-v] name [args]` | 绕过别名直接执行命令 |
+| `builtin name [args]` | 强制执行内置命令 |
+| `enable [-n] [name]` | 启用或禁用内置命令 |
+| `compgen [-cav] [-W list] [prefix]` | 生成补全候选项 |
+| `complete [opts] cmd` | 设置补全规范（桩实现） |
+
+### 进程管理
+| 命令 | 说明 |
+|------|------|
+| `exec cmd [args]` | 用外部命令替换当前 Shell |
+| `kill [-SIG] PID` | 向进程发送信号 |
+| `wait [PID]` | 等待进程结束 |
+| `trap [-l] [action] [SIG]` | 设置或列出信号处理器 |
+| `jobs / bg / fg / disown` | 作业控制（桩实现） |
+
+### 平台专属（Unix）
+| 命令 | 说明 |
+|------|------|
+| `umask [mode]` | 获取/设置文件创建掩码（八进制） |
+| `ulimit [-a] [flag [val]]` | 获取/设置资源限制 |
+| `times` | 显示 Shell 及子进程 CPU 用时 |
+| `suspend` | 挂起当前 Shell（SIGSTOP / NtSuspendProcess） |
+
+### 会话
+| 命令 | 说明 |
+|------|------|
+| `help [command]` | 列出所有命令或显示某命令的用法 |
+| `version` | 打印 omnish 版本 |
+| `clear` | 清屏 |
+| `quit / exit` | 关闭当前 Shell 会话 |
+
+---
+
 ## 架构说明
 
 ```
 cmd/omnish/
-└── main.go          程序入口——解析参数、组装注册表、启动各服务
+└── main.go                    程序入口——解析参数、组装注册表、启动各服务
 
 internal/
-├── shell/           交互式 Shell（编辑器内核 + stdio / telnet / SSH 三种前端）
-│   ├── editor.go    纯 Go 行编辑器（历史记录、Tab 补全、ANSI 光标控制）
-│   ├── registry.go  命令注册表与分发器
-│   ├── loop.go      共享编辑器循环（三种前端复用）
-│   ├── stdio.go     本地 stdin/stdout 前端
-│   ├── telnet.go    Telnet 前端（含 IAC 协商）
-│   └── ssh.go       SSH 前端（基于 gliderlabs/ssh）
-├── jsonrpc/         JSON-RPC 2.0 服务端（按行分帧）
-├── modbus/          Modbus 从站（TCP + RTU）
-│   ├── store.go     寄存器/线圈存储（支持读写回调）
-│   ├── tcp_server.go Modbus TCP 帧处理器
-│   ├── rtu_server.go Modbus RTU 帧处理器（串口）
-│   ├── rtu_frame.go  RTU 帧封装（t3.5 静默检测）
-│   ├── crc16.go      CRC-16/Modbus 查表计算
-│   └── exception.go  标准异常码
-├── serial/          跨平台串口驱动（Linux termios / macOS IOSSIOSPEED / Win32 DCB）
-├── transport/       传输层抽象（TCP 监听器 + stdio 封装）
-├── registry/        编译期协议注册表（空导入模式）
-└── logx/            结构化日志 + 报文追踪（基于 log/slog）
+├── shell/                     交互式 Shell（编辑器内核 + stdio / telnet / SSH 三种前端）
+│   ├── editor.go              纯 Go 行编辑器（历史记录、Tab 补全、ANSI 光标控制）
+│   ├── registry.go            命令注册表与分发器
+│   ├── loop.go                共享编辑器循环（三种前端复用）
+│   ├── stdio.go               本地 stdin/stdout 前端
+│   ├── telnet.go              Telnet 前端（含 IAC 协商）
+│   ├── ssh.go                 SSH 前端（基于 gliderlabs/ssh）
+│   ├── builtins.go            跨平台内置命令（ls/mv/cp/mkdir/chmod/chown/du/cd 等）
+│   ├── builtins_unix.go       Unix 公共命令：umask/ulimit/times/suspend（Linux + macOS + BSD）
+│   ├── builtins_linux.go      Linux 原生命令：free/df/ps/ss，读取 /proc 和 unix.Statfs
+│   ├── builtins_unix_other.go macOS/BSD 桩实现（命令已注册，执行时返回平台提示）
+│   └── builtins_windows.go    Windows 实现，通过 Win32 API 实现 free/df/ps/umask/ulimit 等
+├── jsonrpc/                   JSON-RPC 2.0 服务端（按行分帧）
+├── modbus/                    Modbus 从站（TCP + RTU）
+│   ├── store.go               寄存器/线圈存储（支持读写回调）
+│   ├── tcp_server.go          Modbus TCP 帧处理器
+│   ├── rtu_server.go          Modbus RTU 帧处理器（串口）
+│   ├── rtu_frame.go           RTU 帧封装（t3.5 静默检测）
+│   ├── crc16.go               CRC-16/Modbus 查表计算
+│   └── exception.go           标准异常码
+├── serial/                    跨平台串口驱动（Linux termios / macOS IOSSIOSPEED / Win32 DCB）
+├── transport/                 传输层抽象（TCP 监听器 + stdio 封装）
+├── registry/                  编译期协议注册表（空导入模式）
+└── logx/                      结构化日志 + 报文追踪（基于 log/slog）
 ```
 
 ---
@@ -207,5 +330,5 @@ make run            # go run ./cmd/omnish serve --log debug
 ## 致谢
 
 - [gliderlabs/ssh](https://github.com/gliderlabs/ssh) — SSH 服务端库  
-- [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) — 底层系统原语（串口、终端）  
+- [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) — 底层系统原语（串口、终端、/proc 接口）  
 - [golang.org/x/term](https://pkg.go.dev/golang.org/x/term) — 终端 raw 模式  

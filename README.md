@@ -22,6 +22,7 @@ It exposes the same command registry over **Telnet**, **SSH**, **local stdio**, 
 - **Graceful shutdown** — SIGINT/SIGTERM propagates through all services  
 - **Tab completion & command history** — shared editor core across all shell frontends  
 - **Pluggable commands** — register shell commands, JSON-RPC methods, and Modbus registers at startup  
+- **Rich built-in command set** — 60+ bash-compatible built-ins across all platforms  
 
 ---
 
@@ -113,32 +114,154 @@ Flags for 'omnish serve':
 
 ---
 
+## Built-in Commands
+
+All built-ins are available on every platform. Commands marked **[Linux]** use native `/proc` on Linux and return an informative error on macOS/BSD; Windows has its own Win32 implementations.
+
+### Navigation
+| Command | Description |
+|---------|-------------|
+| `cd [dir\|-\|~]` | Change directory; `cd -` returns to previous dir (OLDPWD), `cd ~` goes home |
+| `pwd` | Print current working directory |
+| `dirs` | Display directory stack |
+| `pushd [dir]` | Push directory onto stack and cd |
+| `popd` | Pop top of directory stack and cd |
+
+### Filesystem
+| Command | Description |
+|---------|-------------|
+| `ls [-alAhRtr] [path...]` | List directory contents |
+| `mv [-f] src... dest` | Move or rename files |
+| `cp [-r] [-f] src... dest` | Copy files or directories |
+| `mkdir [-p] [-m mode] dir...` | Create directories |
+| `chmod [-R] mode file...` | Change permissions (octal or symbolic, e.g. `u+x`) |
+| `chown [-R] owner[:group] file...` | Change file owner and group |
+| `du [-hsca] [-d N] [-bkmh] [path...]` | Estimate file space usage |
+| `df [-hHTia] [-t type] [path...]` | Report filesystem disk usage **[Linux/Windows]** |
+
+### System Information
+| Command | Description |
+|---------|-------------|
+| `free [-h\|-b\|-k\|-m\|-g] [-t] [-w]` | Display memory usage **[Linux/Windows]** |
+| `ps [-eAf] [-p pid] [-u user] [aux]` | Report process status **[Linux/Windows]** |
+| `ss [-tulxnsa46]` | Socket statistics **[Linux/Windows]** |
+| `date` | Show current date and time |
+| `uptime` | Show how long omnish has been running |
+
+### Variables & Environment
+| Command | Description |
+|---------|-------------|
+| `export [name[=value]]` | Export variable to environment |
+| `unset name` | Delete variable or environment variable |
+| `set` | List all shell variables |
+| `declare / typeset / local [-rx] [name[=v]]` | Declare variable with optional flags |
+| `readonly [name[=value]]` | Mark variable as read-only |
+| `let expr` | Evaluate arithmetic expression (`let x=5+3`) |
+
+### Aliases
+| Command | Description |
+|---------|-------------|
+| `alias [name[='cmd']]` | Create or list aliases |
+| `unalias name` | Remove alias |
+
+### I/O
+| Command | Description |
+|---------|-------------|
+| `echo [text...]` | Print arguments |
+| `printf format [args...]` | Formatted output (supports `\n` `\t` `%s` `%d` etc.) |
+| `read [-r] [-p prompt] VAR` | Read line into variable |
+
+### History
+| Command | Description |
+|---------|-------------|
+| `history` | Show numbered command history |
+| `fc [-l] [n]` | List (`-l`) or re-execute history entry `n` |
+
+### Flow Control
+| Command | Description |
+|---------|-------------|
+| `eval [args...]` | Evaluate arguments as a shell command |
+| `source / .  file` | Execute commands from file |
+| `true / false / :` | Boolean no-ops |
+| `return [n]` | Return from function with exit code |
+| `shift [n]` | Shift positional parameters |
+| `getopts optstring var` | Parse option arguments |
+
+### Conditionals
+| Command | Description |
+|---------|-------------|
+| `test expr` / `[ expr ]` | Evaluate conditional expression |
+| `[[ expr ]]` | Extended conditional expression |
+
+### Command Introspection
+| Command | Description |
+|---------|-------------|
+| `type name...` | Show how each name is interpreted |
+| `hash [-r] [name]` | Show or reset command path cache |
+| `command [-v] name [args]` | Run command bypassing aliases |
+| `builtin name [args]` | Force built-in execution |
+| `enable [-n] [name]` | Enable or disable built-ins |
+| `compgen [-cav] [-W list] [prefix]` | Generate completion matches |
+| `complete [opts] cmd` | Set completion specification (stub) |
+
+### Process Management
+| Command | Description |
+|---------|-------------|
+| `exec cmd [args]` | Execute external command replacing shell |
+| `kill [-SIG] PID` | Send signal to process |
+| `wait [PID]` | Wait for process to complete |
+| `trap [-l] [action] [SIG]` | Set or list signal handlers |
+| `jobs / bg / fg / disown` | Job control (stubs) |
+
+### Platform-specific (Unix)
+| Command | Description |
+|---------|-------------|
+| `umask [mode]` | Get/set file creation mask (octal) |
+| `ulimit [-a] [flag [val]]` | Get/set resource limits |
+| `times` | Show shell and children CPU usage |
+| `suspend` | Suspend current shell (SIGSTOP / NtSuspendProcess) |
+
+### Session
+| Command | Description |
+|---------|-------------|
+| `help [command]` | List all commands or show usage for one |
+| `version` | Print omnish version |
+| `clear` | Clear the terminal screen |
+| `quit / exit` | Close current shell session |
+
+---
+
 ## Architecture
 
 ```
 cmd/omnish/
-└── main.go          Entry point — parses flags, wires registries, starts services
+└── main.go               Entry point — parses flags, wires registries, starts services
 
 internal/
-├── shell/           Interactive shell (editor core + stdio / telnet / SSH frontends)
-│   ├── editor.go    Pure-Go line editor (history, Tab completion, ANSI cursor)
-│   ├── registry.go  Command registry and dispatcher
-│   ├── loop.go      Shared editor loop (all three frontends)
-│   ├── stdio.go     Local stdin/stdout frontend
-│   ├── telnet.go    Telnet frontend with IAC negotiation
-│   └── ssh.go       SSH frontend (gliderlabs/ssh)
-├── jsonrpc/         JSON-RPC 2.0 server (newline-framed)
-├── modbus/          Modbus slave (TCP + RTU)
-│   ├── store.go     Register/coil store with read/write callbacks
-│   ├── tcp_server.go Modbus TCP frame handler
-│   ├── rtu_server.go Modbus RTU frame handler (serial)
-│   ├── rtu_frame.go  RTU framing (t3.5 silence detection)
-│   ├── crc16.go      CRC-16/Modbus lookup table
-│   └── exception.go  Standard exception codes
-├── serial/          Cross-platform serial port (Linux termios / macOS IOSSIOSPEED / Win32 DCB)
-├── transport/       Transport abstraction (TCP listener + stdio wrapper)
-├── registry/        Compile-time protocol registry (blank-import pattern)
-└── logx/            Structured logger + packet tracing (log/slog)
+├── shell/                Interactive shell (editor core + stdio / telnet / SSH frontends)
+│   ├── editor.go         Pure-Go line editor (history, Tab completion, ANSI cursor)
+│   ├── registry.go       Command registry and dispatcher
+│   ├── loop.go           Shared editor loop (all three frontends)
+│   ├── stdio.go          Local stdin/stdout frontend
+│   ├── telnet.go         Telnet frontend with IAC negotiation
+│   ├── ssh.go            SSH frontend (gliderlabs/ssh)
+│   ├── builtins.go       Cross-platform built-ins (ls, mv, cp, mkdir, chmod, chown, du, cd, ...)
+│   ├── builtins_unix.go  Unix built-ins: umask, ulimit, times, suspend (Linux + macOS + BSD)
+│   ├── builtins_linux.go Linux-native: free, df, ps, ss via /proc and unix.Statfs
+│   ├── builtins_unix_other.go  macOS/BSD stubs for Linux commands (registered, return platform error)
+│   └── builtins_windows.go     Windows built-ins via Win32 API (free, df, ps, umask, ulimit, ...)
+├── jsonrpc/              JSON-RPC 2.0 server (newline-framed)
+├── modbus/               Modbus slave (TCP + RTU)
+│   ├── store.go          Register/coil store with read/write callbacks
+│   ├── tcp_server.go     Modbus TCP frame handler
+│   ├── rtu_server.go     Modbus RTU frame handler (serial)
+│   ├── rtu_frame.go      RTU framing (t3.5 silence detection)
+│   ├── crc16.go          CRC-16/Modbus lookup table
+│   └── exception.go      Standard exception codes
+├── serial/               Cross-platform serial port (Linux termios / macOS IOSSIOSPEED / Win32 DCB)
+├── transport/            Transport abstraction (TCP listener + stdio wrapper)
+├── registry/             Compile-time protocol registry (blank-import pattern)
+└── logx/                 Structured logger + packet tracing (log/slog)
 ```
 
 ---
@@ -207,5 +330,5 @@ Please open an issue to discuss significant changes before sending a pull reques
 ## Acknowledgements
 
 - [gliderlabs/ssh](https://github.com/gliderlabs/ssh) — SSH server library  
-- [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) — low-level OS primitives (serial port, terminal)  
+- [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) — low-level OS primitives (serial port, terminal, /proc)  
 - [golang.org/x/term](https://pkg.go.dev/golang.org/x/term) — terminal raw mode  
