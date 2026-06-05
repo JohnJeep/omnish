@@ -18,8 +18,8 @@ export GOPRIVATE=*
 
 .PHONY: build
 build:
-	go build -ldflags="$(LDFLAGS)" -o $(BIN)/$(BINARY) $(CMD)
-	@echo "Built: $(BIN)/$(BINARY)"
+	go build -ldflags="$(LDFLAGS)" -o $(BINARY) $(CMD)
+	@echo "Built: $(BINARY)"
 
 # Cross-compilation matrix for all platforms
 PLATFORMS := \

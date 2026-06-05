@@ -26,7 +26,7 @@ QUICK START
   1. Build and run with every service enabled:
 
        make build
-       ./bin/omnish serve
+       ./omnish serve
 
   2. In another terminal, try the shell over Telnet:
 
@@ -37,8 +37,7 @@ QUICK START
 
   3. Try JSON-RPC over netcat:
 
-       echo '{"jsonrpc":"2.0","id":1,"method":"system.ping","params":null}' \
-         | nc localhost 9000
+       echo '{"jsonrpc":"2.0","id":1,"method":"system.ping","params":null}' | nc localhost 9000
 
   4. Stop the daemon with Ctrl-C (or SIGTERM).
 

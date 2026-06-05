@@ -32,7 +32,7 @@ It exposes the same command registry over **Telnet**, **SSH**, **local stdio**, 
 make build
 
 # 2. Start with all services on their default ports
-./bin/omnish serve
+./omnish serve
 
 # 3. Connect from another terminal
 telnet localhost 2323                          # shell via Telnet
@@ -42,23 +42,23 @@ echo '{"jsonrpc":"2.0","id":1,"method":"system.ping","params":null}' | nc localh
 # ── common recipes ──────────────────────────────────────────────────────────
 
 # Headless daemon (no local console)
-./bin/omnish serve --no-stdio
+./omnish serve --no-stdio
 
 # Telnet shell only
-./bin/omnish serve --no-stdio --rpc "" --modbus ""
+./omnish serve --no-stdio --rpc "" --modbus ""
 
 # JSON-RPC only
-./bin/omnish serve --no-stdio --telnet "" --ssh "" --modbus ""
+./omnish serve --no-stdio --telnet "" --ssh "" --modbus ""
 
 # Modbus TCP slave only
-./bin/omnish serve --no-stdio --telnet "" --ssh "" --rpc ""
+./omnish serve --no-stdio --telnet "" --ssh "" --rpc ""
 
 # Modbus RTU over serial (9600-8-N-1, slave ID 1)
-./bin/omnish serve --no-stdio --telnet "" --ssh "" --rpc "" --modbus "" \
+./omnish serve --no-stdio --telnet "" --ssh "" --rpc "" --modbus "" \
                    --serial /dev/ttyUSB0 --baud 9600 --slaveid 1
 
 # Custom ports + debug logging
-./bin/omnish serve --telnet :4000 --ssh :4001 --rpc :4002 --log debug
+./omnish serve --telnet :4000 --ssh :4001 --rpc :4002 --log debug
 ```
 
 ---

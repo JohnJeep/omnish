@@ -42,23 +42,23 @@ echo '{"jsonrpc":"2.0","id":1,"method":"system.ping","params":null}' | nc localh
 # ── 常用场景 ──────────────────────────────────────────────────────────────────
 
 # 后台守护进程（不占用本地控制台）
-./bin/omnish serve --no-stdio
+./omnish serve --no-stdio
 
 # 仅 Telnet Shell
-./bin/omnish serve --no-stdio --rpc "" --modbus ""
+./omnish serve --no-stdio --rpc "" --modbus ""
 
 # 仅 JSON-RPC
-./bin/omnish serve --no-stdio --telnet "" --ssh "" --modbus ""
+./omnish serve --no-stdio --telnet "" --ssh "" --modbus ""
 
 # 仅 Modbus TCP 从站
-./bin/omnish serve --no-stdio --telnet "" --ssh "" --rpc ""
+./omnish serve --no-stdio --telnet "" --ssh "" --rpc ""
 
 # 通过串口运行 Modbus RTU（9600-8-N-1，从站 ID 1）
-./bin/omnish serve --no-stdio --telnet "" --ssh "" --rpc "" --modbus "" \
+./omnish serve --no-stdio --telnet "" --ssh "" --rpc "" --modbus "" \
                    --serial /dev/ttyUSB0 --baud 9600 --slaveid 1
 
 # 自定义端口 + 调试日志
-./bin/omnish serve --telnet :4000 --ssh :4001 --rpc :4002 --log debug
+./omnish serve --telnet :4000 --ssh :4001 --rpc :4002 --log debug
 ```
 
 ---
