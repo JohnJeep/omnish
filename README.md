@@ -13,7 +13,7 @@ It exposes the same command registry over **Telnet**, **SSH**, **local stdio**, 
 | Shell | Telnet | `:2323` |
 | Shell | SSH (Ed25519 host key, anonymous auth) | `:2222` |
 | RPC | JSON-RPC 2.0 (newline-framed, `nc`-compatible) | `:9000` |
-| Industrial | Modbus TCP slave | `:502` |
+| Industrial | Modbus TCP slave | `:5002` |
 | Industrial | Modbus RTU slave (serial RS-232/RS-485) | via `--serial` |
 
 - **Single binary, all platforms** — Linux / macOS / Windows × amd64 / arm64  
@@ -101,7 +101,7 @@ Flags for 'omnish serve':
   --ssh      string   SSH shell listen address (default ":2222", empty to disable)
   --stdio             Enable local stdio shell (disabled by default to keep logs clean)
   --rpc      string   JSON-RPC 2.0 listen address (default ":9000", empty to disable)
-  --modbus   string   Modbus TCP listen address (default ":502", empty to disable)
+  --modbus   string   Modbus TCP listen address (default ":5002", empty to disable)
   --serial   string   Serial port device, e.g. /dev/ttyUSB0 or COM3 (empty to disable)
   --baud     int      Serial baud rate (default 9600)
   --databits int      Serial data bits: 5/6/7/8 (default 8)

@@ -13,7 +13,7 @@
 | Shell | Telnet | `:2323` |
 | Shell | SSH（Ed25519 主机密钥，匿名认证） | `:2222` |
 | RPC | JSON-RPC 2.0（按行分帧，兼容 `nc`） | `:9000` |
-| 工业协议 | Modbus TCP 从站 | `:502` |
+| 工业协议 | Modbus TCP 从站 | `:5002` |
 | 工业协议 | Modbus RTU 从站（串口 RS-232/RS-485） | 通过 `--serial` 指定 |
 
 - **单一二进制，全平台**——Linux / macOS / Windows × amd64 / arm64  
@@ -101,7 +101,7 @@ omnish serve --help
   --ssh      string   SSH Shell 监听地址（默认 ":2222"，空串禁用）
   --stdio             启用本地 stdio Shell（默认关闭，避免与日志输出混杂）
   --rpc      string   JSON-RPC 2.0 监听地址（默认 ":9000"，空串禁用）
-  --modbus   string   Modbus TCP 监听地址（默认 ":502"，空串禁用）
+  --modbus   string   Modbus TCP 监听地址（默认 ":5002"，空串禁用）
   --serial   string   串口设备，例如 /dev/ttyUSB0 或 COM3（空串禁用）
   --baud     int      串口波特率（默认 9600）
   --databits int      串口数据位：5/6/7/8（默认 8）
