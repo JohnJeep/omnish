@@ -31,7 +31,7 @@
 # 1. 为当前平台构建
 make build
 
-# 2. 以默认配置启动（所有服务均使用默认端口）
+# 2. 启动所有网络服务（stdio Shell 默认关闭，日志输出更整洁）
 ./bin/omnish serve
 
 # 3. 在另一个终端中连接
@@ -41,24 +41,24 @@ echo '{"jsonrpc":"2.0","id":1,"method":"system.ping","params":null}' | nc localh
 
 # ── 常用场景 ──────────────────────────────────────────────────────────────────
 
-# 后台守护进程（不占用本地控制台）
-./omnish serve --no-stdio
+# 启用本地 stdio Shell（用于交互式调试）
+./bin/omnish serve --stdio
 
 # 仅 Telnet Shell
-./omnish serve --no-stdio --rpc "" --modbus ""
+./bin/omnish serve --rpc "" --modbus ""
 
 # 仅 JSON-RPC
-./omnish serve --no-stdio --telnet "" --ssh "" --modbus ""
+./bin/omnish serve --telnet "" --ssh "" --modbus ""
 
 # 仅 Modbus TCP 从站
-./omnish serve --no-stdio --telnet "" --ssh "" --rpc ""
+./bin/omnish serve --telnet "" --ssh "" --rpc ""
 
 # 通过串口运行 Modbus RTU（9600-8-N-1，从站 ID 1）
-./omnish serve --no-stdio --telnet "" --ssh "" --rpc "" --modbus "" \
+./bin/omnish serve --telnet "" --ssh "" --rpc "" --modbus "" \
                    --serial /dev/ttyUSB0 --baud 9600 --slaveid 1
 
 # 自定义端口 + 调试日志
-./omnish serve --telnet :4000 --ssh :4001 --rpc :4002 --log debug
+./bin/omnish serve --telnet :4000 --ssh :4001 --rpc :4002 --log debug
 ```
 
 ---
@@ -99,7 +99,7 @@ omnish serve --help
 'omnish serve' 参数：
   --telnet   string   Telnet Shell 监听地址（默认 ":2323"，空串禁用）
   --ssh      string   SSH Shell 监听地址（默认 ":2222"，空串禁用）
-  --no-stdio          禁用本地 stdio Shell
+  --stdio             启用本地 stdio Shell（默认关闭，避免与日志输出混杂）
   --rpc      string   JSON-RPC 2.0 监听地址（默认 ":9000"，空串禁用）
   --modbus   string   Modbus TCP 监听地址（默认 ":502"，空串禁用）
   --serial   string   串口设备，例如 /dev/ttyUSB0 或 COM3（空串禁用）

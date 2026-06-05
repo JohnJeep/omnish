@@ -19,7 +19,7 @@ type serveFlags struct {
 	// Shell
 	telnetAddr string
 	sshAddr    string
-	noStdio    bool
+	stdio      bool // enable local stdio shell (off by default to avoid log interference)
 
 	// JSON-RPC
 	rpcAddr string
@@ -58,25 +58,28 @@ to any address flag to disable that service.
   Modbus TCP     --modbus    :502      --modbus ""
   Modbus RTU     --serial    (off)     (omit --serial)
 
+The local stdio shell is OFF by default to keep log output clean.
+Pass --stdio to enable it (useful for interactive debugging).
+
 Serial port flags (--serial, --baud, --databits, --parity, --stopbits, --slaveid)
 are only relevant when Modbus RTU is enabled.`,
-		Example: `  # Start everything on default ports (good first run)
+		Example: `  # Start all network services (stdio shell disabled — logs stay clean)
   omnish serve
 
-  # Headless — all network services, no local console
-  omnish serve --no-stdio
+  # Enable the local stdio shell for interactive debugging
+  omnish serve --stdio
 
   # Shell over Telnet and SSH only (no RPC, no Modbus)
   omnish serve --rpc "" --modbus ""
 
   # JSON-RPC only
-  omnish serve --no-stdio --telnet "" --ssh "" --modbus ""
+  omnish serve --telnet "" --ssh "" --modbus ""
 
   # Modbus TCP slave only
-  omnish serve --no-stdio --telnet "" --ssh "" --rpc ""
+  omnish serve --telnet "" --ssh "" --rpc ""
 
   # Modbus RTU slave over RS-232/RS-485 (9600-8-N-1, slave ID 1)
-  omnish serve --no-stdio --telnet "" --ssh "" --rpc "" --modbus "" \
+  omnish serve --telnet "" --ssh "" --rpc "" --modbus "" \
                --serial /dev/ttyUSB0 --baud 9600 --slaveid 1
 
   # Custom ports + debug logging
@@ -87,7 +90,7 @@ are only relevant when Modbus RTU is enabled.`,
 	// Shell
 	cmd.Flags().StringVar(&f.telnetAddr, "telnet", ":2323", "telnet shell listen address (empty to disable)")
 	cmd.Flags().StringVar(&f.sshAddr, "ssh", ":2222", "SSH shell listen address (empty to disable)")
-	cmd.Flags().BoolVar(&f.noStdio, "no-stdio", false, "disable local stdio shell")
+	cmd.Flags().BoolVar(&f.stdio, "stdio", false, "enable local stdio shell (disabled by default to keep logs clean)")
 
 	// JSON-RPC
 	cmd.Flags().StringVar(&f.rpcAddr, "rpc", ":9000", "JSON-RPC 2.0 listen address (empty to disable)")
@@ -183,7 +186,7 @@ func runServe(f *serveFlags) error {
 		logx.Info("Shell (SSH) listening", "addr", f.sshAddr)
 	}
 
-	if !f.noStdio {
+	if f.stdio {
 		go func() {
 			if err := shell.ServeStdio(ctx, shellReg); err != nil && ctx.Err() == nil {
 				errCh <- fmt.Errorf("shell-stdio: %w", err)

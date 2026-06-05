@@ -31,31 +31,31 @@ It exposes the same command registry over **Telnet**, **SSH**, **local stdio**, 
 # 1. Build for the current platform
 make build
 
-# 2. Start with all services on their default ports
+# 2. Start all network services (stdio shell is OFF by default — logs stay clean)
 ./omnish serve
 
 # 3. Connect from another terminal
-telnet localhost 2323                          # shell via Telnet
+telnet localhost 2323                              # shell via Telnet
 ssh -p 2222 -o StrictHostKeyChecking=no localhost  # shell via SSH
 echo '{"jsonrpc":"2.0","id":1,"method":"system.ping","params":null}' | nc localhost 9000
 
 # ── common recipes ──────────────────────────────────────────────────────────
 
-# Headless daemon (no local console)
-./omnish serve --no-stdio
+# Enable local stdio shell (for interactive debugging)
+./omnish serve --stdio
 
 # Telnet shell only
-./omnish serve --no-stdio --rpc "" --modbus ""
+./omnish serve --rpc "" --modbus ""
 
 # JSON-RPC only
-./omnish serve --no-stdio --telnet "" --ssh "" --modbus ""
+./omnish serve --telnet "" --ssh "" --modbus ""
 
 # Modbus TCP slave only
-./omnish serve --no-stdio --telnet "" --ssh "" --rpc ""
+./omnish serve --telnet "" --ssh "" --rpc ""
 
 # Modbus RTU over serial (9600-8-N-1, slave ID 1)
-./omnish serve --no-stdio --telnet "" --ssh "" --rpc "" --modbus "" \
-                   --serial /dev/ttyUSB0 --baud 9600 --slaveid 1
+./omnish serve --telnet "" --ssh "" --rpc "" --modbus "" \
+               --serial /dev/ttyUSB0 --baud 9600 --slaveid 1
 
 # Custom ports + debug logging
 ./omnish serve --telnet :4000 --ssh :4001 --rpc :4002 --log debug
@@ -99,7 +99,7 @@ Subcommands:
 Flags for 'omnish serve':
   --telnet   string   Telnet shell listen address (default ":2323", empty to disable)
   --ssh      string   SSH shell listen address (default ":2222", empty to disable)
-  --no-stdio          Disable local stdio shell
+  --stdio             Enable local stdio shell (disabled by default to keep logs clean)
   --rpc      string   JSON-RPC 2.0 listen address (default ":9000", empty to disable)
   --modbus   string   Modbus TCP listen address (default ":502", empty to disable)
   --serial   string   Serial port device, e.g. /dev/ttyUSB0 or COM3 (empty to disable)
