@@ -1719,6 +1719,66 @@ func cpDir(src, dst string, force bool) error {
 	})
 }
 
+func cmdRM(_ context.Context, args []string) (string, error) {
+	force := false
+	recursive := false
+	var rest []string
+
+	for _, a := range args {
+		if len(a) > 1 && a[0] == '-' {
+			for _, c := range a[1:] {
+				switch c {
+				case 'f':
+					force = true
+				case 'r', 'R':
+					recursive = true
+				case 'i':
+					// interactive mode not supported in non-tty handler
+				}
+			}
+		} else {
+			rest = append(rest, a)
+		}
+	}
+
+	if len(rest) == 0 {
+		return "", fmt.Errorf("rm: missing operand\nusage: rm [-r] [-f] file...")
+	}
+
+	var errs []string
+	for _, path := range rest {
+		fi, err := os.Lstat(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				if !force {
+					errs = append(errs, fmt.Sprintf("rm: cannot remove '%s': No such file or directory", path))
+				}
+				continue
+			}
+			errs = append(errs, fmt.Sprintf("rm: %v", err))
+			continue
+		}
+		if fi.IsDir() {
+			if !recursive {
+				errs = append(errs, fmt.Sprintf("rm: cannot remove '%s': Is a directory", path))
+				continue
+			}
+			if err := os.RemoveAll(path); err != nil {
+				errs = append(errs, fmt.Sprintf("rm: %v", err))
+			}
+		} else {
+			if err := os.Remove(path); err != nil && !force {
+				errs = append(errs, fmt.Sprintf("rm: %v", err))
+			}
+		}
+	}
+
+	if len(errs) > 0 {
+		return "", fmt.Errorf("%s", strings.Join(errs, "\n"))
+	}
+	return "", nil
+}
+
 func cmdMkdir(_ context.Context, args []string) (string, error) {
 	parents := false
 	mode := os.FileMode(0755)

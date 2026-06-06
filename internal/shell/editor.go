@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -75,6 +78,13 @@ func (e *Editor) ReadLine() (string, error) {
 			if cursor < len(buf) {
 				buf = buf[:cursor]
 				e.write("\x1b[K") //nolint
+			}
+
+		case 0x0C: // Ctrl-L: clear screen, reprint prompt + current buffer
+			e.write("\x1b[2J\x1b[H")          //nolint ANSI: erase screen + cursor to top-left
+			e.write(e.prompt + string(buf))    //nolint reprint prompt and current input
+			if diff := len(buf) - cursor; diff > 0 {
+				e.moveLeft(diff) //nolint restore cursor position
 			}
 
 		case '\t': // Tab completion
@@ -208,37 +218,86 @@ func (e *Editor) replaceWith(buf []rune, cursor int, newLine string) (int, []run
 	return len(nb), nb
 }
 
-// doComplete runs Tab completion at the current cursor position (first word only).
+// doComplete runs Tab completion at the current cursor position.
+// First word: command name completion. Subsequent words: file path completion.
 func (e *Editor) doComplete(buf []rune, cursor int) (int, []rune) {
 	prefix := string(buf[:cursor])
-	if strings.ContainsRune(prefix, ' ') {
-		return cursor, buf // argument completion not yet supported
+
+	// Find start of the current word (position after last space).
+	wordStart := strings.LastIndexByte(prefix, ' ') + 1
+	currentWord := prefix[wordStart:]
+	beforeWord := prefix[:wordStart]
+
+	var candidates []string
+	if wordStart == 0 {
+		candidates = e.reg.Complete(currentWord)
+	} else {
+		candidates = completePath(currentWord)
 	}
-	candidates := e.reg.Complete(prefix)
+
 	switch len(candidates) {
 	case 0:
 		e.write("\a") //nolint ring the bell
+
 	case 1:
-		completed := candidates[0] + " "
-		if cursor > 0 {
-			e.moveLeft(cursor) //nolint
+		completed := candidates[0]
+		// Command names get a trailing space; directories already end with "/".
+		if wordStart == 0 && !strings.HasSuffix(completed, "/") {
+			completed += " "
 		}
-		e.write("\x1b[K")  //nolint
+		if cursor > wordStart {
+			e.moveLeft(cursor - wordStart) //nolint
+		}
+		e.write("\x1b[K")  //nolint clear to end of line
 		e.write(completed) //nolint
 		suffix := buf[cursor:]
-		nb := append([]rune(completed), suffix...)
-		return len(completed), nb
+		nb := append([]rune(beforeWord+completed), suffix...)
+		return len([]rune(beforeWord + completed)), nb
+
 	default:
-		// multiple candidates: display list then reprint prompt with existing input
-		e.write("\r\n")                         //nolint
-		e.write(strings.Join(candidates, "  ")) //nolint
-		e.write("\r\n")                         //nolint
-		e.write(e.prompt + string(buf))         //nolint
+		// Strip common directory prefix for display (matches bash behaviour).
+		dir, _ := filepath.Split(currentWord)
+		display := make([]string, len(candidates))
+		for i, c := range candidates {
+			display[i] = strings.TrimPrefix(c, dir)
+		}
+		e.write("\r\n")                        //nolint
+		e.write(strings.Join(display, "  "))   //nolint
+		e.write("\r\n")                        //nolint
+		e.write(e.prompt + string(buf))        //nolint
 		if diff := len(buf) - cursor; diff > 0 {
 			e.moveLeft(diff) //nolint
 		}
 	}
 	return cursor, buf
+}
+
+// completePath returns filesystem entries whose names match prefix.
+// prefix may include a directory part (e.g. "./src/fo" → dir="./src/", base="fo").
+func completePath(prefix string) []string {
+	dir, base := filepath.Split(prefix)
+	searchDir := dir
+	if searchDir == "" {
+		searchDir = "."
+	}
+	entries, err := os.ReadDir(searchDir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, base) {
+			continue
+		}
+		completed := dir + name
+		if entry.IsDir() {
+			completed += "/"
+		}
+		out = append(out, completed)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // pushHistory appends a line to history, skipping duplicates and capping at maxHistory.

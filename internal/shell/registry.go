@@ -194,6 +194,7 @@ func (r *Registry) registerBuiltins() {
 	r.AddCommand("ls",    "ls [-alAhRtr] [path...]      — list directory contents",                   cmdLS)
 	r.AddCommand("mv",    "mv [-f] src... dest          — move or rename files",                      cmdMV)
 	r.AddCommand("cp",    "cp [-r] [-f] src... dest     — copy files or directories",                 cmdCP)
+	r.AddCommand("rm",    "rm [-r] [-f] file...         — remove files or directories",               cmdRM)
 	r.AddCommand("mkdir", "mkdir [-p] [-m mode] dir...  — create directories",                        cmdMkdir)
 	r.AddCommand("chmod", "chmod [-R] mode file...      — change file permissions (octal or symbolic)", cmdChmod)
 	r.AddCommand("chown", "chown [-R] owner[:grp] file  — change file owner and group",               cmdChown)
