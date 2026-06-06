@@ -89,6 +89,7 @@ type response struct {
 	Result  any             `json:"result,omitempty"`
 	Error   *rpcErrResp     `json:"error,omitempty"`
 	ID      json.RawMessage `json:"id"`
+	skip    bool            // true for notifications: caller must not send a reply (JSON-RPC 2.0 §4)
 }
 
 type rpcErrResp struct {
@@ -144,6 +145,9 @@ func (s *Server) handleConn(ctx context.Context, conn transport.Conn) {
 		})
 
 		resp := s.dispatch(ctx, raw)
+		if resp.skip {
+			continue
+		}
 		if err := enc.Encode(resp); err != nil {
 			return
 		}
@@ -168,6 +172,17 @@ func (s *Server) dispatch(ctx context.Context, raw []byte) response {
 	}
 	if req.JSONRPC != "2.0" || req.Method == "" {
 		return errorResp(req.ID, CodeInvalidRequest, "invalid request")
+	}
+
+	// JSON-RPC 2.0 §4: absent "id" field means this is a Notification — server must not reply.
+	if req.ID == nil {
+		s.reg.mu.RLock()
+		h, ok := s.reg.handlers[req.Method]
+		s.reg.mu.RUnlock()
+		if ok {
+			h(ctx, req.Params) //nolint
+		}
+		return response{skip: true}
 	}
 
 	s.reg.mu.RLock()
@@ -215,6 +230,9 @@ func (s *Server) ServeConn(ctx context.Context, conn transport.Conn) error {
 		}
 		raw := scanner.Bytes()
 		resp := s.dispatch(ctx, raw)
+		if resp.skip {
+			continue
+		}
 		if err := enc.Encode(resp); err != nil {
 			return err
 		}
@@ -228,6 +246,9 @@ func (s *Server) ReadFrom(ctx context.Context, r io.Reader, w io.Writer) error {
 	enc := json.NewEncoder(w)
 	for scanner.Scan() {
 		resp := s.dispatch(ctx, scanner.Bytes())
+		if resp.skip {
+			continue
+		}
 		if err := enc.Encode(resp); err != nil {
 			return err
 		}

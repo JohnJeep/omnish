@@ -122,3 +122,128 @@ func TestRPCList(t *testing.T) {
 		t.Error("expected at least one method in rpc.list")
 	}
 }
+
+// TestJSONRPCResponseHasVersion verifies all success responses include "jsonrpc":"2.0".
+// Spec §5: A Response object MUST contain the "jsonrpc" member set to "2.0".
+func TestJSONRPCResponseHasVersion(t *testing.T) {
+	srv := newTestServer()
+	ctx := context.Background()
+
+	var out bytes.Buffer
+	_ = srv.ReadFrom(ctx, strings.NewReader(rpcRequest("echo", nil, 1)+"\n"), &out)
+
+	var resp map[string]any
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+	if resp["jsonrpc"] != "2.0" {
+		t.Errorf(`"jsonrpc": want "2.0", got %v`, resp["jsonrpc"])
+	}
+}
+
+// TestJSONRPCErrorResponseHasVersion verifies error responses also include "jsonrpc":"2.0".
+// Spec §5.1: error responses are Response objects and must include the "jsonrpc" member.
+func TestJSONRPCErrorResponseHasVersion(t *testing.T) {
+	srv := newTestServer()
+	ctx := context.Background()
+
+	var out bytes.Buffer
+	_ = srv.ReadFrom(ctx, strings.NewReader(rpcRequest("no.such.method", nil, 2)+"\n"), &out)
+
+	var resp map[string]any
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+	if resp["jsonrpc"] != "2.0" {
+		t.Errorf(`"jsonrpc" in error response: want "2.0", got %v`, resp["jsonrpc"])
+	}
+}
+
+// TestJSONRPCNotification verifies that a request without an "id" field produces no response.
+// Spec §4: A Notification is a Request without an "id". Server MUST NOT reply.
+func TestJSONRPCNotification(t *testing.T) {
+	srv := newTestServer()
+	ctx := context.Background()
+
+	// Deliberately omit "id" field to mark this as a notification
+	notification := `{"jsonrpc":"2.0","method":"echo","params":[]}` + "\n"
+	var out bytes.Buffer
+	if err := srv.ReadFrom(ctx, strings.NewReader(notification), &out); err != nil {
+		t.Fatalf("ReadFrom: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("expected no response for notification, got %d bytes: %s", out.Len(), out.String())
+	}
+}
+
+// TestJSONRPCIntegerID verifies that a numeric "id" is echoed verbatim in the response.
+// Spec §4: id may be a String, Number, or Null; response id MUST match the request id.
+func TestJSONRPCIntegerID(t *testing.T) {
+	srv := newTestServer()
+	ctx := context.Background()
+
+	var out bytes.Buffer
+	_ = srv.ReadFrom(ctx, strings.NewReader(rpcRequest("echo", nil, 42)+"\n"), &out)
+
+	var resp map[string]any
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+	idVal, ok := resp["id"].(float64) // JSON numbers decode as float64
+	if !ok {
+		t.Fatalf(`"id" type: want float64, got %T (%v)`, resp["id"], resp["id"])
+	}
+	if idVal != 42 {
+		t.Errorf(`"id": want 42, got %v`, idVal)
+	}
+}
+
+// TestJSONRPCInvalidRequest verifies that a request missing the "method" field returns -32600.
+// Spec §5.1 error code -32600: "Invalid Request – The JSON sent is not a valid Request object."
+func TestJSONRPCInvalidRequest(t *testing.T) {
+	srv := newTestServer()
+	ctx := context.Background()
+
+	raw := `{"jsonrpc":"2.0","id":5}` + "\n" // no "method" key
+	var out bytes.Buffer
+	_ = srv.ReadFrom(ctx, strings.NewReader(raw), &out)
+
+	var resp map[string]any
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+	if resp["jsonrpc"] != "2.0" {
+		t.Errorf(`"jsonrpc": want "2.0", got %v`, resp["jsonrpc"])
+	}
+	errObj, ok := resp["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected error object, got %v", resp["error"])
+	}
+	if int(errObj["code"].(float64)) != CodeInvalidRequest {
+		t.Errorf("error code: want CodeInvalidRequest (%d), got %v", CodeInvalidRequest, errObj["code"])
+	}
+}
+
+// TestJSONRPCNullID verifies that "id":null in a request is echoed as null in the response.
+// Spec §4: id=null is valid (distinct from absent id); response id must mirror the request id.
+func TestJSONRPCNullID(t *testing.T) {
+	srv := newTestServer()
+	ctx := context.Background()
+
+	raw := `{"jsonrpc":"2.0","method":"no.such","id":null}` + "\n"
+	var out bytes.Buffer
+	_ = srv.ReadFrom(ctx, strings.NewReader(raw), &out)
+
+	var resp map[string]any
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+	// JSON null decodes to nil in map[string]any; key must be present with nil value
+	idVal, hasID := resp["id"]
+	if !hasID {
+		t.Fatal(`"id" key missing from response`)
+	}
+	if idVal != nil {
+		t.Errorf(`"id": want null (nil), got %v (%T)`, idVal, idVal)
+	}
+}

@@ -5,6 +5,7 @@ package modbus
 
 import (
 	"context"
+	"net"
 
 	"github.com/omnish/omnish/internal/logx"
 	"github.com/omnish/omnish/internal/transport"
@@ -39,6 +40,16 @@ func (s *RTUOverTCPServer) Serve(ctx context.Context, tr transport.Transport) er
 			go s.handleConn(ctx, conn)
 		}
 	}
+}
+
+// ServeNetConn handles a net.Conn directly; used in tests.
+func (s *RTUOverTCPServer) ServeNetConn(ctx context.Context, nc net.Conn) {
+	conn := transport.Conn{
+		ReadWriteCloser: nc,
+		RemoteAddr:      nc.RemoteAddr().String(),
+		Transport:       "tcp",
+	}
+	s.handleConn(ctx, conn)
 }
 
 func (s *RTUOverTCPServer) handleConn(ctx context.Context, conn transport.Conn) {
