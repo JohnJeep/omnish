@@ -1,7 +1,7 @@
 # omnish
 
 **omnish** 是一个用纯 Go 编写的轻量级多协议交互式 Shell 守护进程。  
-它通过 **Telnet**、**SSH**、**本地 stdio**、**JSON-RPC 2.0** 以及 **Modbus TCP/RTU** 同时暴露相同的命令注册表——零 CGo，无外部运行时依赖。
+它通过 **Telnet**、**SSH**、**本地 stdio**、**JSON-RPC 2.0** 以及 **Modbus TCP / RTU / RTU-over-TCP** 同时暴露相同的命令注册表——零 CGo，无外部运行时依赖。
 
 ---
 
@@ -14,6 +14,7 @@
 | Shell | SSH（Ed25519 主机密钥，匿名认证） | `:2222` |
 | RPC | JSON-RPC 2.0（按行分帧，兼容 `nc`） | `:9000` |
 | 工业协议 | Modbus TCP 从站 | `:5002` |
+| 工业协议 | Modbus RTU-over-TCP 从站（无 MBAP 头） | `--modbus-rtu-tcp` |
 | 工业协议 | Modbus RTU 从站（串口 RS-232/RS-485） | 通过 `--serial` 指定 |
 
 - **单一二进制，全平台**——Linux / macOS / Windows × amd64 / arm64  
@@ -53,6 +54,9 @@ echo '{"jsonrpc":"2.0","id":1,"method":"system.ping","params":null}' | nc localh
 
 # 仅 Modbus TCP 从站
 ./omnish serve --telnet "" --ssh "" --rpc ""
+
+# Modbus RTU-over-TCP（原始 RTU 帧通过 TCP 传输，无 MBAP 头，兼容 PLC 和 Modbus Poll RTU/IP 模式）
+./omnish serve --telnet "" --ssh "" --rpc "" --modbus-rtu-tcp :5003
 
 # 通过串口运行 Modbus RTU（9600-8-N-1，从站 ID 1）
 ./omnish serve --telnet "" --ssh "" --rpc "" --modbus "" \
@@ -102,8 +106,9 @@ omnish serve --help
   --ssh      string   SSH Shell 监听地址（默认 ":2222"，空串禁用）
   --stdio             启用本地 stdio Shell（默认关闭，避免与日志输出混杂）
   --rpc      string   JSON-RPC 2.0 监听地址（默认 ":9000"，空串禁用）
-  --modbus   string   Modbus TCP 监听地址（默认 ":5002"，空串禁用）
-  --serial   string   串口设备，例如 /dev/ttyUSB0 或 COM3（空串禁用）
+  --modbus         string   Modbus TCP 监听地址（默认 ":5002"，空串禁用）
+  --modbus-rtu-tcp string   Modbus RTU-over-TCP 监听地址（默认为空，即禁用）
+  --serial         string   串口设备，例如 /dev/ttyUSB0 或 COM3（空串禁用）
   --baud     int      串口波特率（默认 9600）
   --databits int      串口数据位：5/6/7/8（默认 8）
   --parity   string   串口校验：N/E/O（默认 "N"）
@@ -228,41 +233,6 @@ omnish serve --help
 | `version` | 打印 omnish 版本 |
 | `clear` | 清屏 |
 | `quit / exit` | 关闭当前 Shell 会话 |
-
----
-
-## 架构说明
-
-```
-cmd/omnish/
-└── main.go                    程序入口——解析参数、组装注册表、启动各服务
-
-internal/
-├── shell/                     交互式 Shell（编辑器内核 + stdio / telnet / SSH 三种前端）
-│   ├── editor.go              纯 Go 行编辑器（历史记录、Tab 补全、ANSI 光标控制）
-│   ├── registry.go            命令注册表与分发器
-│   ├── loop.go                共享编辑器循环（三种前端复用）
-│   ├── stdio.go               本地 stdin/stdout 前端
-│   ├── telnet.go              Telnet 前端（含 IAC 协商）
-│   ├── ssh.go                 SSH 前端（基于 gliderlabs/ssh）
-│   ├── builtins.go            跨平台内置命令（ls/mv/cp/mkdir/chmod/chown/du/cd 等）
-│   ├── builtins_unix.go       Unix 公共命令：umask/ulimit/times/suspend（Linux + macOS + BSD）
-│   ├── builtins_linux.go      Linux 原生命令：free/df/ps/ss，读取 /proc 和 unix.Statfs
-│   ├── builtins_unix_other.go macOS/BSD 桩实现（命令已注册，执行时返回平台提示）
-│   └── builtins_windows.go    Windows 实现，通过 Win32 API 实现 free/df/ps/umask/ulimit 等
-├── jsonrpc/                   JSON-RPC 2.0 服务端（按行分帧）
-├── modbus/                    Modbus 从站（TCP + RTU）
-│   ├── store.go               寄存器/线圈存储（支持读写回调）
-│   ├── tcp_server.go          Modbus TCP 帧处理器
-│   ├── rtu_server.go          Modbus RTU 帧处理器（串口）
-│   ├── rtu_frame.go           RTU 帧封装（t3.5 静默检测）
-│   ├── crc16.go               CRC-16/Modbus 查表计算
-│   └── exception.go           标准异常码
-├── serial/                    跨平台串口驱动（Linux termios / macOS IOSSIOSPEED / Win32 DCB）
-├── transport/                 传输层抽象（TCP 监听器 + stdio 封装）
-├── registry/                  编译期协议注册表（空导入模式）
-└── logx/                      结构化日志 + 报文追踪（基于 log/slog）
-```
 
 ---
 

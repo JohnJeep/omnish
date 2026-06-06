@@ -31,6 +31,9 @@ type serveFlags struct {
 	// Modbus TCP
 	modbusAddr string
 
+	// Modbus RTU-over-TCP
+	modbusRTUTCPAddr string
+
 	// Serial port (Modbus RTU)
 	serial   string
 	baud     int
@@ -54,13 +57,14 @@ func newServeCmd() *cobra.Command {
 By default every service starts on its standard port.  Pass an empty string ""
 to any address flag to disable that service.
 
-  SERVICE        FLAG        DEFAULT   DISABLE
-  ─────────────────────────────────────────────
-  Telnet shell   --telnet    :2323     --telnet ""
-  SSH shell      --ssh       :2222     --ssh ""
-  JSON-RPC 2.0   --rpc       :9000     --rpc ""
-  Modbus TCP     --modbus    :502      --modbus ""
-  Modbus RTU     --serial    (off)     (omit --serial)
+  SERVICE        FLAG              DEFAULT   DISABLE
+  ──────────────────────────────────────────────────────
+  Telnet shell   --telnet          :2323     --telnet ""
+  SSH shell      --ssh             :2222     --ssh ""
+  JSON-RPC 2.0   --rpc             :9000     --rpc ""
+  Modbus TCP     --modbus          :5002     --modbus ""
+  Modbus RTU/TCP --modbus-rtu-tcp  (off)     (omit flag)
+  Modbus RTU     --serial          (off)     (omit --serial)
 
 The local stdio shell is OFF by default to keep log output clean.
 Pass --stdio to enable it (useful for interactive debugging).
@@ -101,6 +105,9 @@ are only relevant when Modbus RTU is enabled.`,
 
 	// Modbus TCP
 	cmd.Flags().StringVar(&f.modbusAddr, "modbus", ":5002", "Modbus TCP listen address (empty to disable)")
+
+	// Modbus RTU-over-TCP
+	cmd.Flags().StringVar(&f.modbusRTUTCPAddr, "modbus-rtu-tcp", "", "Modbus RTU-over-TCP listen address (empty to disable, e.g. :5003)")
 
 	// Serial / Modbus RTU
 	cmd.Flags().StringVar(&f.serial, "serial", "", "serial port device, e.g. /dev/ttyUSB0 or COM3 (empty to disable)")
@@ -155,6 +162,15 @@ func runServe(f *serveFlags) error {
 			}
 		}()
 		logx.Info("Modbus TCP listening", "addr", f.modbusAddr)
+	}
+
+	if f.modbusRTUTCPAddr != "" {
+		go func() {
+			if err := startModbusRTUOverTCP(ctx, f.modbusRTUTCPAddr, mbStore, byte(f.slaveID)); err != nil {
+				errCh <- fmt.Errorf("modbus-rtu-tcp: %w", err)
+			}
+		}()
+		logx.Info("Modbus RTU-over-TCP listening", "addr", f.modbusRTUTCPAddr)
 	}
 
 	if f.serial != "" {

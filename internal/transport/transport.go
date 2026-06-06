@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"time"
 )
 
 // Transport represents a listener that continuously accepts connections.
@@ -32,6 +33,18 @@ type Conn struct {
 	RemoteAddr string
 	// Transport is the owning transport layer name, used for logging.
 	Transport string
+}
+
+// SetReadDeadline forwards to the underlying connection if it supports deadlines.
+// This allows rtuReader to detect RTU frame boundaries via timeout over TCP connections.
+func (c Conn) SetReadDeadline(t time.Time) error {
+	type deadliner interface {
+		SetReadDeadline(time.Time) error
+	}
+	if d, ok := c.ReadWriteCloser.(deadliner); ok {
+		return d.SetReadDeadline(t)
+	}
+	return nil
 }
 
 // TCPTransport listens for TCP connections on a given address.

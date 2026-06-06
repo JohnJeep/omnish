@@ -1,7 +1,7 @@
 # omnish
 
 **omnish** is a lightweight, multi-protocol interactive shell daemon written in pure Go.  
-It exposes the same command registry over **Telnet**, **SSH**, **local stdio**, **JSON-RPC 2.0**, and **Modbus TCP/RTU** simultaneously — with zero CGo and no external runtime dependencies.
+It exposes the same command registry over **Telnet**, **SSH**, **local stdio**, **JSON-RPC 2.0**, and **Modbus TCP / RTU / RTU-over-TCP** simultaneously — with zero CGo and no external runtime dependencies.
 
 ---
 
@@ -14,6 +14,7 @@ It exposes the same command registry over **Telnet**, **SSH**, **local stdio**, 
 | Shell | SSH (Ed25519 host key, anonymous auth) | `:2222` |
 | RPC | JSON-RPC 2.0 (newline-framed, `nc`-compatible) | `:9000` |
 | Industrial | Modbus TCP slave | `:5002` |
+| Industrial | Modbus RTU-over-TCP slave (no MBAP header) | `--modbus-rtu-tcp` |
 | Industrial | Modbus RTU slave (serial RS-232/RS-485) | via `--serial` |
 
 - **Single binary, all platforms** — Linux / macOS / Windows × amd64 / arm64  
@@ -53,6 +54,9 @@ echo '{"jsonrpc":"2.0","id":1,"method":"system.ping","params":null}' | nc localh
 
 # Modbus TCP slave only
 ./omnish serve --telnet "" --ssh "" --rpc ""
+
+# Modbus RTU-over-TCP (raw RTU frames over TCP, no MBAP — for PLCs / Modbus Poll RTU/IP mode)
+./omnish serve --telnet "" --ssh "" --rpc "" --modbus-rtu-tcp :5003
 
 # Modbus RTU over serial (9600-8-N-1, slave ID 1)
 ./omnish serve --telnet "" --ssh "" --rpc "" --modbus "" \
@@ -102,8 +106,9 @@ Flags for 'omnish serve':
   --ssh      string   SSH shell listen address (default ":2222", empty to disable)
   --stdio             Enable local stdio shell (disabled by default to keep logs clean)
   --rpc      string   JSON-RPC 2.0 listen address (default ":9000", empty to disable)
-  --modbus   string   Modbus TCP listen address (default ":5002", empty to disable)
-  --serial   string   Serial port device, e.g. /dev/ttyUSB0 or COM3 (empty to disable)
+  --modbus         string   Modbus TCP listen address (default ":5002", empty to disable)
+  --modbus-rtu-tcp string   Modbus RTU-over-TCP listen address (default "", disabled)
+  --serial         string   Serial port device, e.g. /dev/ttyUSB0 or COM3 (empty to disable)
   --baud     int      Serial baud rate (default 9600)
   --databits int      Serial data bits: 5/6/7/8 (default 8)
   --parity   string   Serial parity: N/E/O (default "N")
@@ -228,41 +233,6 @@ All built-ins are available on every platform. Commands marked **[Linux]** use n
 | `version` | Print omnish version |
 | `clear` | Clear the terminal screen |
 | `quit / exit` | Close current shell session |
-
----
-
-## Architecture
-
-```
-cmd/omnish/
-└── main.go               Entry point — parses flags, wires registries, starts services
-
-internal/
-├── shell/                Interactive shell (editor core + stdio / telnet / SSH frontends)
-│   ├── editor.go         Pure-Go line editor (history, Tab completion, ANSI cursor)
-│   ├── registry.go       Command registry and dispatcher
-│   ├── loop.go           Shared editor loop (all three frontends)
-│   ├── stdio.go          Local stdin/stdout frontend
-│   ├── telnet.go         Telnet frontend with IAC negotiation
-│   ├── ssh.go            SSH frontend (gliderlabs/ssh)
-│   ├── builtins.go       Cross-platform built-ins (ls, mv, cp, mkdir, chmod, chown, du, cd, ...)
-│   ├── builtins_unix.go  Unix built-ins: umask, ulimit, times, suspend (Linux + macOS + BSD)
-│   ├── builtins_linux.go Linux-native: free, df, ps, ss via /proc and unix.Statfs
-│   ├── builtins_unix_other.go  macOS/BSD stubs for Linux commands (registered, return platform error)
-│   └── builtins_windows.go     Windows built-ins via Win32 API (free, df, ps, umask, ulimit, ...)
-├── jsonrpc/              JSON-RPC 2.0 server (newline-framed)
-├── modbus/               Modbus slave (TCP + RTU)
-│   ├── store.go          Register/coil store with read/write callbacks
-│   ├── tcp_server.go     Modbus TCP frame handler
-│   ├── rtu_server.go     Modbus RTU frame handler (serial)
-│   ├── rtu_frame.go      RTU framing (t3.5 silence detection)
-│   ├── crc16.go          CRC-16/Modbus lookup table
-│   └── exception.go      Standard exception codes
-├── serial/               Cross-platform serial port (Linux termios / macOS IOSSIOSPEED / Win32 DCB)
-├── transport/            Transport abstraction (TCP listener + stdio wrapper)
-├── registry/             Compile-time protocol registry (blank-import pattern)
-└── logx/                 Structured logger + packet tracing (log/slog)
-```
 
 ---
 

@@ -28,6 +28,15 @@ func startModbusTCP(ctx context.Context, addr string, store *modbus.Store, slave
 	return modbus.NewTCPServer(store, slaveID).Serve(ctx, tr)
 }
 
+func startModbusRTUOverTCP(ctx context.Context, addr string, store *modbus.Store, slaveID byte) error {
+	tr, err := transport.NewTCP(addr)
+	if err != nil {
+		return err
+	}
+	defer tr.Close()
+	return modbus.NewRTUOverTCPServer(store, slaveID).Serve(ctx, tr)
+}
+
 func startModbusRTU(ctx context.Context, device string, cfg *modbus.SerialConfig, store *modbus.Store, slaveID byte) error {
 	return modbus.NewRTUServer(store, slaveID, &serialpkg.Config{
 		BaudRate: cfg.BaudRate,
