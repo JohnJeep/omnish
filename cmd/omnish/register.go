@@ -52,7 +52,12 @@ func registerRPCMethods(r *jsonrpc.Registry) {
 }
 
 func registerModbusRegisters(s *modbus.Store) {
-	_ = s.AddRegister(modbus.Holding, 0x0001, 42)
+	// Holding registers 0x0000–0x0009 (readable by Modbus Poll default scan)
+	for addr := uint16(0x0000); addr <= 0x0009; addr++ {
+		_ = s.AddRegister(modbus.Holding, addr, 0)
+	}
+	_ = s.AddRegister(modbus.Holding, 0x0001, 42) // example: address 1 = 42
+
 	_ = s.AddRegister(modbus.Coil, 0x0000, 1)
 	_ = s.AddRegister(modbus.Input, 0x0000, 1000)
 }
