@@ -230,32 +230,24 @@ func (t *telnetRW) replyOption(cmd, opt byte) {
 	}
 }
 
-// Write writes data to the underlying connection, escaping 0xFF bytes as 0xFF 0xFF.
+// Write writes data to the underlying connection.
+// Telnet NVT requires \r\n line endings; this method normalises bare \n to \r\n
+// and escapes 0xFF bytes as 0xFF 0xFF per the Telnet spec.
 func (t *telnetRW) Write(p []byte) (int, error) {
-	// check for 0xFF bytes
-	hasFF := false
-	for _, b := range p {
-		if b == 0xFF {
-			hasFF = true
-			break
+	out := make([]byte, 0, len(p)+8)
+	for i := 0; i < len(p); i++ {
+		b := p[i]
+		if b == '\n' && (i == 0 || p[i-1] != '\r') {
+			out = append(out, '\r', '\n')
+		} else if b == 0xFF {
+			out = append(out, 0xFF, 0xFF) // escape IAC
+		} else {
+			out = append(out, b)
 		}
 	}
-	if !hasFF {
-		return t.inner.Write(p)
-	}
-	// escaping needed
-	escaped := make([]byte, 0, len(p)+8)
-	for _, b := range p {
-		escaped = append(escaped, b)
-		if b == 0xFF {
-			escaped = append(escaped, 0xFF)
-		}
-	}
-	n, err := t.inner.Write(escaped)
+	_, err := t.inner.Write(out)
 	if err != nil {
 		return 0, err
 	}
-	// return original (unescaped) length to avoid misleading callers
-	_ = n
 	return len(p), nil
 }
