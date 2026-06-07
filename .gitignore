@@ -33,3 +33,6 @@ profile.cov
 
 # files
 bin
+
+# claude
+CLAUDE*
